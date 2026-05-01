@@ -14,20 +14,30 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Firebase Initialization
+const cleanPrivateKey = (key: string | undefined) => {
+  if (!key) return undefined;
+  // Remove aspas, espaços extras e garante que os \n sejam quebras de linha reais
+  return key
+    .replace(/^"|"$/g, '') // Remove aspas no início e fim
+    .replace(/\\n/g, '\n') // Converte \n literal em quebra de linha
+    .trim();
+};
+
 const firebaseConfig = {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  // Limpeza robusta da chave privada
-  privateKey: process.env.FIREBASE_PRIVATE_KEY 
-    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/"/g, '')
-    : undefined,
+  privateKey: cleanPrivateKey(process.env.FIREBASE_PRIVATE_KEY),
 };
 
 if (firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.privateKey) {
   try {
     if (!admin.apps.length) {
       admin.initializeApp({
-        credential: admin.credential.cert(firebaseConfig),
+        credential: admin.credential.cert({
+          projectId: firebaseConfig.projectId,
+          clientEmail: firebaseConfig.clientEmail,
+          privateKey: firebaseConfig.privateKey,
+        }),
       });
       console.log("Firebase initialized successfully");
     }
@@ -35,8 +45,9 @@ if (firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.pri
     console.error("Firebase init error:", error.message);
   }
 } else {
-  console.warn("Firebase credentials missing or incomplete in environment variables.");
+  console.warn("Firebase credentials missing or incomplete.");
 }
+
 
 
 const db = admin.firestore();
