@@ -110,9 +110,9 @@ app.post("/api/draw", async (req, res) => {
     await db.collection(DRAWS_COLLECTION).doc(drawId).set(drawData);
 
     res.json({ drawId, participants });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating draw:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 });
 
@@ -163,9 +163,21 @@ app.get("/api/reveal/:drawId/:participantId", async (req, res) => {
   }
 });
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", firebase: !!admin.apps.length });
+app.get("/api/health", (req, res) => {
+  const diagnostics = {
+    status: "ok",
+    env: {
+      hasProjectId: !!process.env.FIREBASE_PROJECT_ID,
+      hasClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
+      hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+      privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length || 0,
+    },
+    firebase: admin.apps.length > 0,
+    timestamp: new Date().toISOString()
+  };
+  res.json(diagnostics);
 });
+
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
