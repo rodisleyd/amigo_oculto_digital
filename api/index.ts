@@ -5,10 +5,6 @@ import fs from "fs";
 import helmet from "helmet";
 import morgan from "morgan";
 import admin from "firebase-admin";
-import dotenv from "dotenv";
-
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -19,34 +15,38 @@ let db: admin.firestore.Firestore | null = null;
 function getDb() {
   if (db) return db;
 
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+
+  if (!projectId) throw new Error("Missing FIREBASE_PROJECT_ID");
+  if (!clientEmail) throw new Error("Missing FIREBASE_CLIENT_EMAIL");
+  if (!privateKey) throw new Error("Missing FIREBASE_PRIVATE_KEY");
+
   const firebaseConfig = {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY 
-      ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/"/g, '').trim()
-      : undefined,
+    projectId,
+    clientEmail,
+    privateKey: privateKey.replace(/\\n/g, '\n').replace(/"/g, '').trim(),
   };
 
-  if (firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.privateKey) {
-    try {
-      if (!admin.apps.length) {
-        admin.initializeApp({
-          credential: admin.credential.cert({
-            projectId: firebaseConfig.projectId,
-            clientEmail: firebaseConfig.clientEmail,
-            privateKey: firebaseConfig.privateKey,
-          }),
-        });
-      }
-      db = admin.firestore();
-      return db;
-    } catch (error: any) {
-      console.error("Firebase init error:", error.message);
-      throw error;
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: firebaseConfig.projectId,
+          clientEmail: firebaseConfig.clientEmail,
+          privateKey: firebaseConfig.privateKey,
+        }),
+      });
     }
+    db = admin.firestore();
+    return db;
+  } catch (error: any) {
+    console.error("Firebase init error:", error.message);
+    throw new Error(`Firebase Init Failed: ${error.message}`);
   }
-  throw new Error("Firebase credentials missing or incomplete.");
 }
+
 
 const DRAWS_COLLECTION = "draws";
 
