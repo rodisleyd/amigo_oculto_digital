@@ -1,5 +1,4 @@
 import express from "express";
-import { createServer as createViteServer } from "vite";
 import path from "path";
 import { nanoid } from "nanoid";
 import fs from "fs";
@@ -7,6 +6,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import admin from "firebase-admin";
 import dotenv from "dotenv";
+
 
 dotenv.config();
 
@@ -193,12 +193,15 @@ app.get("/api/health", (req, res) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
+    // @ts-ignore
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
+
     const distPath = path.join(process.cwd(), "dist");
     if (fs.existsSync(distPath)) {
       app.use(express.static(distPath));
@@ -208,9 +211,13 @@ async function startServer() {
     }
   }
 
-  app.listen(Number(PORT), "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT} with Firestore`);
-  });
+  if (process.env.NODE_ENV !== "production") {
+    app.listen(Number(PORT), "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT} with Firestore`);
+    });
+  }
 }
 
 startServer();
+
+export default app;
