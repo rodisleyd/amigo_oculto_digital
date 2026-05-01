@@ -13,44 +13,41 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Firebase Initialization
-const cleanPrivateKey = (key: string | undefined) => {
-  if (!key) return undefined;
-  // Remove aspas, espaços extras e garante que os \n sejam quebras de linha reais
-  return key
-    .replace(/^"|"$/g, '') // Remove aspas no início e fim
-    .replace(/\\n/g, '\n') // Converte \n literal em quebra de linha
-    .trim();
-};
+// Helper to get Firestore (Lazy initialization)
+let db: admin.firestore.Firestore | null = null;
 
-const firebaseConfig = {
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  privateKey: cleanPrivateKey(process.env.FIREBASE_PRIVATE_KEY),
-};
+function getDb() {
+  if (db) return db;
 
-if (firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.privateKey) {
-  try {
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: firebaseConfig.projectId,
-          clientEmail: firebaseConfig.clientEmail,
-          privateKey: firebaseConfig.privateKey,
-        }),
-      });
-      console.log("Firebase initialized successfully");
+  const firebaseConfig = {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY 
+      ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/"/g, '').trim()
+      : undefined,
+  };
+
+  if (firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.privateKey) {
+    try {
+      if (!admin.apps.length) {
+        admin.initializeApp({
+          credential: admin.credential.cert({
+            projectId: firebaseConfig.projectId,
+            clientEmail: firebaseConfig.clientEmail,
+            privateKey: firebaseConfig.privateKey,
+          }),
+        });
+      }
+      db = admin.firestore();
+      return db;
+    } catch (error: any) {
+      console.error("Firebase init error:", error.message);
+      throw error;
     }
-  } catch (error: any) {
-    console.error("Firebase init error:", error.message);
   }
-} else {
-  console.warn("Firebase credentials missing or incomplete.");
+  throw new Error("Firebase credentials missing or incomplete.");
 }
 
-
-
-const db = admin.firestore();
 const DRAWS_COLLECTION = "draws";
 
 app.use(helmet({
@@ -102,6 +99,7 @@ function getDerangement(participants: Participant[]): Record<string, string> {
 // API Routes
 app.post("/api/draw", async (req, res) => {
   try {
+    const firestore = getDb();
     const { names } = req.body;
     if (!names || !Array.isArray(names) || names.length < 3) {
       return res.status(400).json({ error: "At least 3 participants are required." });
@@ -118,7 +116,7 @@ app.post("/api/draw", async (req, res) => {
       revealed: [],
     };
 
-    await db.collection(DRAWS_COLLECTION).doc(drawId).set(drawData);
+    await firestore.collection(DRAWS_COLLECTION).doc(drawId).set(drawData);
 
     res.json({ drawId, participants });
   } catch (error: any) {
@@ -129,7 +127,8 @@ app.post("/api/draw", async (req, res) => {
 
 app.get("/api/draw/:id", async (req, res) => {
   try {
-    const doc = await db.collection(DRAWS_COLLECTION).doc(req.params.id).get();
+    const firestore = getDb();
+    const doc = await firestore.collection(DRAWS_COLLECTION).doc(req.params.id).get();
     if (!doc.exists) return res.status(404).json({ error: "Draw not found" });
     
     const draw = doc.data() as Draw;
@@ -137,15 +136,16 @@ app.get("/api/draw/:id", async (req, res) => {
       id: draw.id,
       participants: draw.participants
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching draw:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 });
 
 app.get("/api/reveal/:drawId/:participantId", async (req, res) => {
   try {
-    const docRef = db.collection(DRAWS_COLLECTION).doc(req.params.drawId);
+    const firestore = getDb();
+    const docRef = firestore.collection(DRAWS_COLLECTION).doc(req.params.drawId);
     const doc = await docRef.get();
     
     if (!doc.exists) return res.status(404).json({ error: "Draw not found" });
@@ -168,27 +168,28 @@ app.get("/api/reveal/:drawId/:participantId", async (req, res) => {
       secretSanta: matchedName,
       alreadyRevealed
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error revealing participant:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({ error: "Internal server error", details: error.message });
   }
 });
 
 app.get("/api/health", (req, res) => {
-  const diagnostics = {
-    status: "ok",
-    env: {
-      hasProjectId: !!process.env.FIREBASE_PROJECT_ID,
-      hasClientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
-      hasPrivateKey: !!process.env.FIREBASE_PRIVATE_KEY,
-      privateKeyLength: process.env.FIREBASE_PRIVATE_KEY?.length || 0,
-    },
-    firebase: admin.apps.length > 0,
-    timestamp: new Date().toISOString()
-  };
-  res.json(diagnostics);
+  try {
+    const firebaseReady = !!admin.apps.length;
+    res.json({
+      status: "ok",
+      firebaseInitialized: firebaseReady,
+      env: {
+        projectId: !!process.env.FIREBASE_PROJECT_ID,
+        clientEmail: !!process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: !!process.env.FIREBASE_PRIVATE_KEY,
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ status: "error", message: "Failed to load health check" });
+  }
 });
-
 
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
