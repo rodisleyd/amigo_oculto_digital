@@ -17,17 +17,27 @@ const PORT = process.env.PORT || 3000;
 const firebaseConfig = {
   projectId: process.env.FIREBASE_PROJECT_ID,
   clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+  // Limpeza robusta da chave privada
+  privateKey: process.env.FIREBASE_PRIVATE_KEY 
+    ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n').replace(/"/g, '')
+    : undefined,
 };
 
 if (firebaseConfig.projectId && firebaseConfig.clientEmail && firebaseConfig.privateKey) {
-  admin.initializeApp({
-    credential: admin.credential.cert(firebaseConfig),
-  });
-  console.log("Firebase initialized with environment variables");
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert(firebaseConfig),
+      });
+      console.log("Firebase initialized successfully");
+    }
+  } catch (error: any) {
+    console.error("Firebase init error:", error.message);
+  }
 } else {
-  console.warn("Firebase credentials missing in environment variables. DB will not work.");
+  console.warn("Firebase credentials missing or incomplete in environment variables.");
 }
+
 
 const db = admin.firestore();
 const DRAWS_COLLECTION = "draws";
